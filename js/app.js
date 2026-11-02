@@ -1,4 +1,7 @@
-import { renderMarkdown, isDark } from "./render.js";
+import { renderMarkdown, loadScript } from "./render.js";
+import { asciiToWordmat } from "./wordmat.js";
+
+const MATHLIVE = "https://cdn.jsdelivr.net/npm/mathlive@0.101.0/dist/mathlive.min.js";
 
 const SUPABASE_URL = "https://icenjdbuofsvpxxiryne.supabase.co";
 const SUPABASE_KEY = "sb_publishable_sM0PH5Kd5WDsgtg0mbt78g_moQYu27M";
@@ -990,6 +993,8 @@ function dropzone(elementId, onDone, beforeUpload) {
 // ─── Editor ─────────────────────────────────────────────────────────────
 
 const SNIPPETS = {
+  wordmat:
+    "```wordmat\n# Fald fra Storebæltsbroen\nDefiner: g=9,82; h=65\nv:=√(2·g·h)\nv=\nv·3,6≈\nLøs: 1/2·g·t^2=h; t\n```\n",
   calc: "```calc\n# Fald fra Storebæltsbroen\ng = 9.82 m/s^2\nhøjde = 65 m\nv = sqrt(2 g højde)\nv to km/h\n```\n",
   plot: "```plot\ntitel: Funktioner\nx: -2pi..2pi\nsin(x)\ncos(x) / 2\nf(x) = x^3 / 20\n```\n",
   python:
@@ -1192,6 +1197,9 @@ function renderEditor(it, d = {}) {
     tb("◇ diagram", "Mermaid-diagram", () => insertBlock(SNIPPETS.mermaid)),
     tb("{{ }}", "Indsæt resultat af beregning i teksten", () => insert("{{", "}}", "v to km/h")),
     h("span", { class: "tb-sep" }),
+    tb("W", "WordMat-blok (Alt+B beregn, Alt+L løs, Alt+N numerisk, Alt+D definer)", () => insertBlock(SNIPPETS.wordmat)),
+    tb("Σ ligning", "Formeleditor som i Word (Alt+=)", () => formula()),
+    h("span", { class: "tb-sep" }),
     tb("🖼️", "Upload billede/fil og indsæt", () => pickFiles()),
     h("span", { class: "tb-spacer" }),
     tb("?", "Hjælp til syntaks", showSyntaxHelp),
@@ -1248,8 +1256,63 @@ function renderEditor(it, d = {}) {
     timer = setTimeout(updatePreview, 250);
   });
 
+  // WordMat: formeleditor og Alt-genveje
+  function inWordmat() {
+    const before = ta.value.slice(0, ta.selectionStart);
+    const o = Math.max(before.lastIndexOf("```wordmat"), before.lastIndexOf("```wm"));
+    return o >= 0 && !before.slice(o + 3).includes("```");
+  }
+  function lineBounds() {
+    const v = ta.value;
+    const start = v.lastIndexOf("\n", ta.selectionStart - 1) + 1;
+    let end = v.indexOf("\n", ta.selectionStart);
+    if (end < 0) end = v.length;
+    return [start, end];
+  }
+  function putWordmatLine(line, replaceCurrent) {
+    const inside = inWordmat();
+    let [start, end] = lineBounds();
+    const current = ta.value.slice(start, end);
+    if (!replaceCurrent && current.trim()) {
+      start = end;
+      line = "\n" + line;
+    }
+    if (!inside) line = (start > 0 && !replaceCurrent ? "\n" : "") + "```wordmat\n" + line.replace(/^\n/, "") + "\n```";
+    ta.setRangeText(line, start, end, "end");
+    ta.focus();
+    ta.dispatchEvent(new Event("input"));
+  }
+  function wordmatAction(code) {
+    const [start, end] = lineBounds();
+    const text = ta.value
+      .slice(start, end)
+      .trim()
+      .replace(/^(løs|definer|def)\s*:\s*/i, "")
+      .replace(/\s*(=|≈)\s*$/, "");
+    if (!text || text.startsWith("```")) return;
+    const line = { KeyB: text + "=", KeyN: text + "≈", KeyL: "Løs: " + text, KeyD: "Definer: " + text }[code];
+    putWordmatLine(line, true);
+  }
+  function formula() {
+    openFormulaEditor((kind, latex, ascii) => {
+      if (kind === "formel") return insert("$" + latex + "$");
+      const line = { beregn: ascii + "=", numerisk: ascii + "≈", løs: "Løs: " + ascii, definer: "Definer: " + ascii, linje: ascii }[kind];
+      putWordmatLine(line, false);
+    });
+  }
+
   ta.addEventListener("keydown", (e) => {
     const mod = e.metaKey || e.ctrlKey;
+    if (e.altKey && !mod) {
+      if (e.code === "Equal") {
+        e.preventDefault();
+        return formula();
+      }
+      if (["KeyB", "KeyL", "KeyN", "KeyD"].includes(e.code)) {
+        e.preventDefault();
+        return wordmatAction(e.code);
+      }
+    }
     if (e.key === "Tab" && !mod) {
       e.preventDefault();
       insert("  ");
@@ -1370,6 +1433,63 @@ function renderEditor(it, d = {}) {
 let editorSave = null;
 
 // ─── Modaler ────────────────────────────────────────────────────────────
+
+async function openFormulaEditor(onInsert) {
+  const status = h("div", { class: "muted pad" }, "Henter formeleditoren…");
+  const body = h("div", { class: "formula" }, status);
+  const m = modal(
+    h("div", {}, h("div", { class: "modal-head" }, h("h2", {}, "Ligning"), h("button", { class: "icon-btn", onclick: () => m.close() }, icon("x"))), body),
+    "formula-modal",
+  );
+  try {
+    await loadScript(MATHLIVE);
+  } catch {
+    status.textContent = "Kunne ikke hente formeleditoren.";
+    return;
+  }
+  window.MathfieldElement.decimalSeparator = ",";
+  const mf = new window.MathfieldElement();
+  mf.className = "formula-field";
+  const done = (kind) => {
+    const latex = mf.value.trim();
+    if (!latex) return;
+    const ascii = asciiToWordmat(mf.getValue("ascii-math"));
+    m.close();
+    onInsert(kind, latex, ascii);
+  };
+  const btn = (label, kind, keys, primary) =>
+    h("button", { class: "btn" + (primary ? " primary" : ""), onclick: () => done(kind) }, label, keys && h("kbd", {}, keys));
+  mf.addEventListener(
+    "keydown",
+    (e) => {
+      const map = { KeyB: "beregn", KeyL: "løs", KeyN: "numerisk", KeyD: "definer" };
+      if (e.altKey && map[e.code]) {
+        e.preventDefault();
+        e.stopPropagation();
+        done(map[e.code]);
+      } else if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        done("beregn");
+      }
+    },
+    { capture: true },
+  );
+  status.replaceWith(
+    mf,
+    h("p", { class: "muted small" }, "Skriv som i Words formeleditor: / giver brøk, ^ giver eksponent, sqrt giver kvadratrod, pi giver π. Decimalkomma virker."),
+    h(
+      "div",
+      { class: "row" },
+      btn("Beregn =", "beregn", "Alt B", true),
+      btn("Løs ligning", "løs", "Alt L"),
+      btn("Numerisk ≈", "numerisk", "Alt N"),
+      btn("Definer", "definer", "Alt D"),
+      btn("Kun formel", "formel"),
+    ),
+  );
+  setTimeout(() => mf.focus(), 50);
+}
 
 function modal(content, cls = "") {
   const back = h("div", { class: "modal-back", onclick: (e) => e.target === back && close() });
@@ -1606,6 +1726,9 @@ function showShortcuts() {
     ["⌘ S", "Gem (i editoren)"],
     ["⌘ B / ⌘ I", "Fed / kursiv"],
     ["⌘ V", "Indsæt billede som fil"],
+    ["Alt =", "Formeleditor som i Word"],
+    ["Alt B / Alt N", "WordMat: beregn = / numerisk ≈"],
+    ["Alt L / Alt D", "WordMat: løs ligning / definer"],
     ["T", "Skift tema"],
     ["?", "Vis denne oversigt"],
     ["Esc", "Luk vinduer"],
@@ -1631,6 +1754,21 @@ Inline: $E = mc^2$ — på egen linje:
 $$
 \\nabla \\cdot \\mathbf{E} = \\frac{\\rho}{\\varepsilon_0}
 $$
+
+## WordMat
+Skriv som i WordMat: decimalkomma, semikolon mellem argumenter, grader som standard, \`log\` er 10-tals-logaritmen og \`ln\` den naturlige. I editoren: **Alt+=** åbner formeleditoren, **Alt+B** beregner linjen, **Alt+L** løser den, **Alt+N** giver tilnærmet værdi og **Alt+D** definerer.
+
+\`\`\`wordmat
+Definer: a=2; b=-3
+1/3+1/4=
+√8=
+sin(30)=
+Løs: x^2+a·x+b=0
+Løs: x^2=2
+Løs: 2x+y=5 ∧ x-y=1; x,y
+f(x):=x^3-2x
+f(1,5)≈
+\`\`\`
 
 ## Beregninger med enheder
 Variabler deles mellem alle beregninger på siden. Undgå variabelnavne, der også er enheder (f.eks. \`h\`, \`m\`, \`s\`), hvis du bruger enhederne.

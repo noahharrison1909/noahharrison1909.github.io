@@ -1,5 +1,7 @@
 // Markdown med LaTeX, beregninger (math.js), grafer, Python (Pyodide) og diagrammer (Mermaid)
 
+import { wordmatBlock, loadNerdamer } from "./wordmat.js";
+
 const PYODIDE = "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/";
 const MERMAID = "https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js";
 
@@ -85,12 +87,16 @@ export async function renderMarkdown(src, target, ctx = {}) {
 async function enhance(root, ctx) {
   const scope = {};
   const pending = [];
+  if (root.querySelector("code.language-wordmat, code.language-wm")) {
+    await loadNerdamer(loadScript).catch(() => {});
+  }
 
   for (const code of root.querySelectorAll("pre > code")) {
     const lang = ((code.className.match(/language-([\w-]+)/) || [])[1] || "").toLowerCase();
     const pre = code.parentElement;
     const src = code.textContent.replace(/\n$/, "");
     if (lang === "calc" || lang === "regn") pre.replaceWith(calcBlock(src, scope));
+    else if (lang === "wordmat" || lang === "wm") pre.replaceWith(wordmatBlock(src, scope));
     else if (lang === "plot" || lang === "graf") pre.replaceWith(plotBlock(src, scope));
     else if (lang === "python" || lang === "py") {
       const spot = document.createComment("");

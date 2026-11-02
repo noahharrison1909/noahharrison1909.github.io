@@ -674,3 +674,21 @@ pre:hover .copy-btn { opacity: 1; }
   .grid { grid-template-columns: 1fr; }
   .title-input { font-size: 1.35rem; }
 }
+
+/* ─── WordMat ──────────────────────────────────────────────────────── */
+.wordmat .block-label::before { content: "W "; color: var(--accent); }
+.wm-mode { font-size: 0.72rem; color: var(--muted); font-family: var(--mono); }
+.wm-row { padding: 6px 16px; overflow-x: auto; overflow-y: hidden; font-size: 1.05rem; }
+.wm-row:hover { background: var(--surface-2); }
+.wm-row .calc-note { margin-top: 2px; }
+.wm-def { color: var(--text-2); }
+.wm-solve .katex { color: var(--text); }
+.formula-modal { max-width: 760px; }
+.formula { display: flex; flex-direction: column; gap: 12px; }
+.formula-field {
+  width: 100%; min-height: 64px; font-size: 1.6rem; padding: 10px 14px;
+  border: 1px solid var(--border-2); border-radius: 10px; background: var(--surface); color: var(--text);
+  --caret-color: var(--accent); --selection-background-color: var(--accent-soft); --primary-color: var(--accent);
+}
+.formula-field:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+.formula .btn kbd { margin-left: 4px; }
