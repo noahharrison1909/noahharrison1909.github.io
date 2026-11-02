@@ -347,9 +347,192 @@ function fmtNum(n, digits) {
 
 // ─── Blokken ────────────────────────────────────────────────────────────
 
+
+// ─── Infinitesimalregning (altid i radianer) ────────────────────────────
+
+const V = "[a-zA-Zα-ωΑ-Ω]";
+const RE_INT = new RegExp(`^∫\\s*(?:_\\s*(\\([^()]*\\)|[^\\s^_]+)\\s*\\^\\s*(\\([^()]*\\)|\\S+?)\\s+)?(.+?)\\s*d(${V})$`, "u");
+const RE_DIFF = new RegExp(`^d(?:\\^(\\d)|([²³]))?\\/d(${V})(?:\\^\\d|[²³])?\\s*(.+)$`, "u");
+const RE_PRIME = new RegExp(`^(${V}\\w*)('+)\\((.+)\\)$`, "u");
+const RE_LIM = new RegExp(`^lim\\s*_?\\s*\\(?\\s*(${V})\\s*(?:→|->)\\s*([^)\\s]+)\\s*\\)?\\s*(.+)$`, "u");
+const RE_SUM = new RegExp(`^(∑|∏)\\s*_\\s*\\(?\\s*(${V})\\s*=\\s*([^)^]+?)\\s*\\)?\\s*\\^\\s*(\\([^()]*\\)|\\S+?)\\s+(.+)$`, "u");
+
+function strip(s) {
+  s = s.trim();
+  if (!s.startsWith("(") || !s.endsWith(")")) return s;
+  let depth = 0;
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === "(") depth++;
+    else if (s[i] === ")") depth--;
+    if (depth === 0 && i < s.length - 1) return s;
+  }
+  return s.slice(1, -1).trim();
+}
+
+function boundTex(b, opts) {
+  if (/^-?∞$|^-?Infinity$/.test(b)) return (b.startsWith("-") ? "-" : "") + "\\infty";
+  return exprToTex(b, opts);
+}
+
+function simpson(f, a, b, n = 2000) {
+  const h = (b - a) / n;
+  let s = f(a) + f(b);
+  for (let i = 1; i < n; i++) s += f(a + i * h) * (i % 2 ? 4 : 2);
+  return (s * h) / 3;
+}
+
+function resultTex(mode, exactExpr, numeric, cifre, suffix = "") {
+  let n = numeric;
+  if (exactExpr && !Number.isFinite(n)) {
+    try {
+      n = Number(exactExpr.evaluate().text("decimals"));
+    } catch {}
+  }
+  const approx = Number.isFinite(n) ? dk(fmtNum(n, cifre)) : null;
+  if (mode !== "≈" && exactExpr) {
+    const str = exactExpr.toString();
+    if (!ugly(str) && !/integrate|defint|limit|erf|diff|sum\(|product/.test(str)) {
+      let t = " = " + ndTex(exactExpr) + suffix;
+      if (approx && !/^-?\d+$/.test(str)) t += " \\approx " + approx;
+      return t;
+    }
+  }
+  if (approx) return (Math.abs(n - Math.round(n)) < 1e-12 && mode !== "≈" ? " = " + Math.round(n) : " \\approx " + approx) + suffix;
+  throw new Error("Kunne ikke beregne udtrykket");
+}
+
+function calculus(expr, scope, opts, mode) {
+  const ro = { ...opts, grader: false };
+  const nd = window.nerdamer;
+  const known = knownValues(scope);
+  const N = (s) => (nd ? nd(toNerdamer(s, ro), known).toString() : toNerdamer(s, ro));
+  const tx = (s) => exprToTex(s, opts);
+  const num = (s) => {
+    const v = window.math.evaluate(toMathjs(s, ro), scope);
+    return typeof v === "number" ? v : Number(v);
+  };
+  const fn = (body, v) => {
+    const c = window.math.compile(toMathjs(body, ro));
+    return (x) => {
+      try {
+        const r = c.evaluate({ ...scope, [v]: x });
+        return typeof r === "number" ? r : NaN;
+      } catch {
+        return NaN;
+      }
+    };
+  };
+  const tryNd = (s) => {
+    if (!nd) return null;
+    try {
+      return nd(s);
+    } catch {
+      return null;
+    }
+  };
+
+  // Integral
+  let m = expr.match(RE_INT);
+  if (m) {
+    const [, a, b, f, v] = m;
+    if (a == null) {
+      const lhs = `\\int ${tx(f)}\\,d${v}`;
+      if (!mode) return lhs;
+      const F = tryNd(`integrate(${N(f)}, ${v})`);
+      if (!F || /integrate/.test(F.toString())) throw new Error("Kunne ikke finde en stamfunktion");
+      return lhs + " = " + ndTex(F) + " + k";
+    }
+    const A = strip(a);
+    const B = strip(b);
+    const lhs = `\\int_{${boundTex(A, opts)}}^{${boundTex(B, opts)}} ${tx(f)}\\,d${v}`;
+    if (!mode) return lhs;
+    let exactRes = null;
+    const F = tryNd(`integrate(${N(f)}, ${v})`);
+    if (F && !/integrate|erf/.test(F.toString()) && !/∞|Infinity/.test(A + B)) {
+      const Fs = F.toString();
+      exactRes = tryNd(`simplify((${nd(Fs, { [v]: N(B) }).toString()})-(${nd(Fs, { [v]: N(A) }).toString()}))`);
+    }
+    let numeric = NaN;
+    if (!/∞|Infinity/.test(A + B)) numeric = simpson(fn(f, v), num(A), num(B));
+    return lhs + resultTex(mode, exactRes, numeric, opts.cifre);
+  }
+
+  // d/dx (…)
+  m = expr.match(RE_DIFF);
+  if (m) {
+    const n = +(m[1] || { "²": 2, "³": 3 }[m[2]] || 1);
+    const v = m[3];
+    const g = strip(m[4]);
+    const lhs = n === 1 ? `\\frac{d}{d${v}}\\left(${tx(g)}\\right)` : `\\frac{d^{${n}}}{d${v}^{${n}}}\\left(${tx(g)}\\right)`;
+    if (!mode) return lhs;
+    const D = tryNd(`diff(${N(g)}, ${v}, ${n})`);
+    if (!D) throw new Error("Kunne ikke differentiere");
+    return lhs + resultTex(mode, D, NaN, opts.cifre);
+  }
+
+  // f'(x), f''(2)
+  m = expr.match(RE_PRIME);
+  if (m && opts.fns[m[1]]) {
+    const { params, body } = opts.fns[m[1]];
+    const n = m[2].length;
+    const p = params[0];
+    const arg = m[3].trim();
+    const lhs = `${m[1]}${"'".repeat(n)}\\left(${tx(arg)}\\right)`;
+    if (!mode) return lhs;
+    const D = tryNd(`diff(${N(body)}, ${p}, ${n})`);
+    if (!D) throw new Error("Kunne ikke differentiere");
+    const res = arg === p ? D : tryNd(`simplify(${nd(D.toString(), { [p]: N(arg) }).toString()})`);
+    return lhs + resultTex(mode, res, NaN, opts.cifre);
+  }
+
+  // Grænseværdi
+  m = expr.match(RE_LIM);
+  if (m) {
+    const [, v, to, gRaw] = m;
+    const g = strip(gRaw);
+    const lhs = `\\lim_{${v}\\to ${boundTex(to, opts)}} ${tx(g)}`;
+    if (!mode) return lhs;
+    const L = tryNd(`limit(${N(g)}, ${v}, ${toNerdamer(to, ro)})`);
+    let numeric = NaN;
+    if (!/∞|Infinity/.test(to)) {
+      const f = fn(g, v);
+      const t = num(to);
+      numeric = (f(t - 1e-7) + f(t + 1e-7)) / 2;
+    }
+    return lhs + resultTex(mode, L && !/limit/.test(L.toString()) ? L : null, numeric, opts.cifre);
+  }
+
+  // Sum og produkt
+  m = expr.match(RE_SUM);
+  if (m) {
+    const [, op, v, a, b, g] = m;
+    const B = strip(b);
+    const lhs = `\\${op === "∑" ? "sum" : "prod"}_{${v}=${tx(a)}}^{${boundTex(B, opts)}} ${tx(g)}`;
+    if (!mode) return lhs;
+    const f = fn(g, v);
+    const lo = Math.round(num(a));
+    const infinite = /∞|Infinity/.test(B);
+    const hi = infinite ? lo + 200000 : Math.round(num(B));
+    if (hi - lo > 1e6) throw new Error("For mange led");
+    let acc = op === "∑" ? 0 : 1;
+    for (let k = lo; k <= hi; k++) acc = op === "∑" ? acc + f(k) : acc * f(k);
+    if (infinite) return lhs + " \\approx " + dk(fmtNum(acc, opts.cifre));
+    let exactRes = null;
+    if (!Number.isInteger(acc) && Number.isFinite(acc)) {
+      try {
+        const fr = window.math.fraction(acc);
+        if (fr.d < 100000) exactRes = window.nerdamer(`${fr.s * fr.n}/${fr.d}`);
+      } catch {}
+    }
+    return lhs + resultTex(mode, exactRes, acc, opts.cifre);
+  }
+
+  return null;
+}
+
 export function wordmatBlock(src, scope) {
   importDegrees();
-  const opts = { grader: true, cifre: 6, scope };
+  const opts = { grader: true, cifre: 6, scope, fns: {} };
   const box = el("div", "calc wordmat");
   const head = el("div", "block-head");
   const label = el("span", "block-label", "WordMat");
@@ -401,6 +584,7 @@ export function wordmatBlock(src, scope) {
           const rhs = rest.join("=");
           window.math.evaluate(`${normalize(name)} = ${toMathjs(rhs, opts)}`, scope);
           const fn = name.match(/^\s*(\w+)\s*\(([^)]*)\)\s*$/);
+          if (fn) opts.fns[fn[1]] = { params: fn[2].split(",").map((p) => p.trim()), body: rhs };
           if (fn && window.nerdamer) {
             try {
               window.nerdamer.setFunction(fn[1], fn[2].split(",").map((s) => s.trim()), toNerdamer(rhs, opts));
@@ -425,6 +609,11 @@ export function wordmatBlock(src, scope) {
       if (calc) {
         const expr = calc[1];
         const approx = calc[2] !== "=";
+        const cal = calculus(expr, scope, opts, approx ? "≈" : "=");
+        if (cal) {
+          addRow(cal);
+          continue;
+        }
         const lhs = statementToTex(expr, opts);
         if (!approx && !hasUnitsOrDecimals(expr, scope)) {
           const ex = exact(expr, scope, opts);
@@ -443,7 +632,7 @@ export function wordmatBlock(src, scope) {
       }
 
       // Kun visning
-      addRow(statementToTex(line, opts));
+      addRow(calculus(line, scope, opts, null) || statementToTex(line, opts));
     } catch (e) {
       addError(line, e.message);
     }
@@ -453,8 +642,24 @@ export function wordmatBlock(src, scope) {
 }
 
 // MathLive giver ASCII-math; gør det til WordMat-syntaks
+const GREEK = {
+  alpha: "α", beta: "β", gamma: "γ", delta: "δ", epsilon: "ε", varepsilon: "ε", zeta: "ζ", eta: "η", theta: "θ",
+  vartheta: "ϑ", iota: "ι", kappa: "κ", lambda: "λ", mu: "μ", nu: "ν", xi: "ξ", rho: "ρ", sigma: "σ", tau: "τ",
+  upsilon: "υ", phi: "φ", varphi: "φ", chi: "χ", psi: "ψ", omega: "ω", Gamma: "Γ", Delta: "Δ", Theta: "Θ",
+  Lambda: "Λ", Xi: "Ξ", Pi: "Π", Sigma: "Σ", Phi: "Φ", Psi: "Ψ", Omega: "Ω",
+};
+
 export function asciiToWordmat(a) {
   return a
+    .replace(/\s*\bint\s*/g, "∫")
+    .replace(/\s*\bsum\s*/g, "∑")
+    .replace(/\s*\bprod\s*/g, "∏")
+    .replace(/\blim\s*_/g, "lim_")
+    .replace(/->/g, "→")
+    .replace(/\boo\b/g, "∞")
+    .replace(/\(d\)\/\(d([a-z])\)/g, "d/d$1 ")
+    .replace(/(∫|∑|∏)_(\([^)]*\)|[^\s^]+?)\^(\([^)]*\)|-?\d+(?:[.,]\d+)?|[a-zA-Zπ∞])/g, "$1_$2^$3 ")
+    .replace(/\b(alpha|beta|gamma|delta|varepsilon|epsilon|zeta|eta|vartheta|theta|iota|kappa|lambda|mu|nu|xi|rho|sigma|tau|upsilon|varphi|phi|chi|psi|omega|Gamma|Delta|Theta|Lambda|Xi|Pi|Sigma|Phi|Psi|Omega)\b/g, (g) => GREEK[g])
     .replace(/\broot\(([^()]*)\)\(([^()]*)\)/g, "nthRoot($2;$1)")
     .replace(/\b(sin|cos|tan|arcsin|arccos|arctan|ln|log|sqrt|exp)\s+\(/g, "$1(")
     .replace(/\bsqrt\(/g, "√(")

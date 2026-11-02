@@ -1,5 +1,6 @@
 import { renderMarkdown, loadScript } from "./render.js";
 import { asciiToWordmat } from "./wordmat.js";
+import { STANDARD, KATEGORIER, attachAutocomplete, symbolPalette, textFor, mathContext, symbolPreview } from "./symbols.js";
 
 const MATHLIVE = "https://cdn.jsdelivr.net/npm/mathlive@0.101.0/dist/mathlive.min.js";
 
@@ -26,6 +27,9 @@ const state = {
   dirty: false,
   dbError: null,
   open: new Set(readJSON("hl-open", [])),
+  symbols: STANDARD,
+  symbolsSeeded: false,
+  symbolsError: null,
 };
 
 // ─── Små hjælpere ───────────────────────────────────────────────────────
@@ -406,6 +410,7 @@ function renderSidebar() {
   side.append(
     h("a", { class: "nav-link" + (location.hash.length < 3 ? " active" : ""), href: "#/" }, icon("home"), "Forside"),
     h("button", { class: "nav-link", onclick: openPalette }, icon("search"), "Søg", h("kbd", {}, "⌘K")),
+    h("a", { class: "nav-link" + (location.hash.startsWith("#/symboler") ? " active" : ""), href: "#/symboler" }, h("span", { class: "icon glyph" }, "Ω"), "Symboler"),
   );
 
   const head = h(
@@ -578,6 +583,7 @@ async function route() {
   else if (a === "ny") renderEditor(null, { type: q.get("type"), parent_id: q.get("parent"), titel: q.get("titel") });
   else if (a === "ret" && b) renderEditor(state.byId.get(b));
   else if (a === "tag" && b) renderTag(b);
+  else if (a === "symboler") renderSymbols();
   else if (a === "titel" && b) {
     const it = state.items.find((i) => i.titel.toLowerCase() === b.toLowerCase());
     if (it) location.replace("#/e/" + it.id);
@@ -1044,6 +1050,9 @@ function renderEditor(it, d = {}) {
     spellcheck: "false",
   });
   ta.value = draft.indhold || "";
+  attachAutocomplete(ta, () => state.symbols);
+  const palette = symbolPalette(() => state.symbols, (e) => insert(textFor(e, mathContext(ta) || "text")));
+  palette.el.classList.add("hidden");
   const preview = h("div", { class: "md-preview prose" });
 
   let typeSel = draft.type;
@@ -1199,6 +1208,10 @@ function renderEditor(it, d = {}) {
     h("span", { class: "tb-sep" }),
     tb("W", "WordMat-blok (Alt+B beregn, Alt+L løs, Alt+N numerisk, Alt+D definer)", () => insertBlock(SNIPPETS.wordmat)),
     tb("Σ ligning", "Formeleditor som i Word (Alt+=)", () => formula()),
+    tb("Ω", "Symboler og \\-kommandoer", () => {
+      palette.el.classList.toggle("hidden");
+      palette.refresh();
+    }),
     h("span", { class: "tb-sep" }),
     tb("🖼️", "Upload billede/fil og indsæt", () => pickFiles()),
     h("span", { class: "tb-spacer" }),
@@ -1405,6 +1418,7 @@ function renderEditor(it, d = {}) {
           h("div", { class: "title-line" }, ikonInput, titel),
           beskrivelse,
           h("div", { class: "editor-bar" }, toolbar, modeSeg),
+          palette.el,
           pane,
         ),
         h(
@@ -1449,6 +1463,9 @@ async function openFormulaEditor(onInsert) {
   }
   window.MathfieldElement.decimalSeparator = ",";
   const mf = new window.MathfieldElement();
+  const macros = {};
+  for (const e of state.symbols) if (e.latex && e.latex !== "\\" + e.kommando && !/\{\}/.test(e.latex)) macros[e.kommando] = e.latex;
+  mf.macros = { ...mf.macros, ...macros };
   mf.className = "formula-field";
   const done = (kind) => {
     const latex = mf.value.trim();
@@ -1729,6 +1746,7 @@ function showShortcuts() {
     ["Alt =", "Formeleditor som i Word"],
     ["Alt B / Alt N", "WordMat: beregn = / numerisk ≈"],
     ["Alt L / Alt D", "WordMat: løs ligning / definer"],
+    ["\\alpha + mellemrum", "Indsæt symbol (se Symboler)"],
     ["T", "Skift tema"],
     ["?", "Vis denne oversigt"],
     ["Esc", "Luk vinduer"],
@@ -1768,6 +1786,20 @@ Løs: x^2=2
 Løs: 2x+y=5 ∧ x-y=1; x,y
 f(x):=x^3-2x
 f(1,5)≈
+\`\`\`
+
+## Infinitesimalregning (i WordMat-blokke)
+Regner altid i radianer. Skriv \\int, \\sum, \\lim, \\ddx osv. og tryk mellemrum.
+
+\`\`\`wordmat
+∫ x·sin(x) dx=
+∫_0^π sin(x) dx=
+d/dx (x^3+2x)=
+f(x):=x^3-2x
+f'(2)=
+lim_(x→0) sin(x)/x=
+∑_(k=1)^10 k^2=
+∑_(k=1)^∞ 1/k^2≈
 \`\`\`
 
 ## Beregninger med enheder
@@ -1812,6 +1844,189 @@ Upload en fil og skriv \`![tekst](fil:navn.png)\` for at vise et billede.`;
   const body = h("div", { class: "help-body" });
   const m = modal(h("div", {}, h("div", { class: "modal-head" }, h("h2", {}, "Syntaks og eksempler"), h("button", { class: "icon-btn", onclick: () => m.close() }, icon("x"))), body), "large");
   await renderMarkdown(src, body, {});
+}
+
+
+// ─── Symboler og \-kommandoer ───────────────────────────────────────────
+
+async function loadSymbols() {
+  state.symbols = STANDARD;
+  state.symbolsSeeded = false;
+  state.symbolsError = null;
+  if (!state.user) return;
+  const { data, error } = await db.from("symboler").select("*").order("kommando");
+  if (error) {
+    state.symbolsError = error;
+    return;
+  }
+  if (data.length) {
+    state.symbols = data;
+    state.symbolsSeeded = true;
+  }
+}
+
+async function seedSymbols() {
+  if (state.symbolsSeeded) return true;
+  const rows = STANDARD.map(({ kommando, tegn, latex, kategori, beskrivelse }) => ({ kommando, tegn, latex, kategori, beskrivelse }));
+  const { error } = await db.from("symboler").insert(rows);
+  if (error) {
+    toast("Kunne ikke gemme listen: " + error.message, "error");
+    return false;
+  }
+  await loadSymbols();
+  return true;
+}
+
+function renderSymbols() {
+  const v = view();
+  const canEdit = !!state.user && !state.symbolsError;
+  let query = "";
+  let cat = "";
+
+  const search = h("input", { type: "search", placeholder: "Søg efter kommando, tegn eller beskrivelse…", oninput: (e) => ((query = e.target.value.toLowerCase()), draw()) });
+  const catSel = h("select", { onchange: (e) => ((cat = e.target.value), draw()) });
+  const listBox = h("div");
+
+  function draw() {
+    const list = state.symbols;
+    const cats = [...new Set([...KATEGORIER, ...list.map((e) => e.kategori)])].filter((k) => list.some((e) => e.kategori === k));
+    catSel.replaceChildren(h("option", { value: "" }, "Alle kategorier"), cats.map((k) => h("option", { value: k, selected: k === cat }, k)));
+    listBox.innerHTML = "";
+    let total = 0;
+    for (const k of cats) {
+      if (cat && k !== cat) continue;
+      const rows = list.filter(
+        (e) => e.kategori === k && (!query || [e.kommando, e.tegn, e.beskrivelse || "", e.latex || ""].join(" ").toLowerCase().includes(query.replace(/^\\/, ""))),
+      );
+      if (!rows.length) continue;
+      total += rows.length;
+      listBox.append(
+        section(
+          `${k} (${rows.length})`,
+          h(
+            "div",
+            { class: "sym-table" },
+            rows
+              .sort((a, b) => a.kommando.localeCompare(b.kommando, "da"))
+              .map((e) =>
+                h(
+                  "div",
+                  { class: "sym-row" },
+                  h("span", { class: "sym-big" }, symbolPreview(e)),
+                  h("code", { class: "sym-cmd", title: "Klik for at kopiere", onclick: () => navigator.clipboard.writeText("\\" + e.kommando).then(() => toast("Kopieret: \\" + e.kommando)) }, "\\" + e.kommando),
+                  h("span", { class: "sym-desc" }, e.beskrivelse || "", e.latex && e.latex !== "\\" + e.kommando ? h("small", {}, "LaTeX: " + e.latex) : null),
+                  canEdit && h("button", { class: "icon-btn small danger", title: "Fjern fra listen", onclick: () => removeSymbol(e) }, icon("trash")),
+                ),
+              ),
+          ),
+        ),
+      );
+    }
+    if (!total) listBox.append(h("p", { class: "muted" }, "Ingen symboler matcher."));
+  }
+
+  async function removeSymbol(e) {
+    if (!(await seedSymbols())) return;
+    const row = state.symbols.find((x) => x.kommando === e.kommando);
+    const { error } = await db.from("symboler").delete().eq("id", row.id);
+    if (error) return toast("Kunne ikke fjerne: " + error.message, "error");
+    await loadSymbols();
+    if (!state.symbolsSeeded) {
+      // Listen blev tom: gem en markør, så standardlisten ikke vender tilbage
+      state.symbols = [];
+      state.symbolsSeeded = true;
+    }
+    toast(`\\${e.kommando} er fjernet`);
+    draw();
+  }
+
+  const f = {
+    kommando: h("input", { placeholder: "f.eks. vinkel", required: true, pattern: "[A-Za-z][A-Za-z0-9]*" }),
+    tegn: h("input", { placeholder: "f.eks. ∠ eller ∫_0^1  dx", required: true }),
+    latex: h("input", { placeholder: "f.eks. \\angle (valgfri)" }),
+    kategori: h("input", { placeholder: "Kategori", list: "symKat", value: "Andet" }),
+    beskrivelse: h("input", { placeholder: "Kort beskrivelse (valgfri)" }),
+  };
+  const addForm = h(
+    "form",
+    {
+      class: "panel sym-form",
+      onsubmit: async (e) => {
+        e.preventDefault();
+        const kommando = f.kommando.value.trim().replace(/^\\/, "");
+        if (!/^[A-Za-z][A-Za-z0-9]*$/.test(kommando)) return toast("Kommandoen må kun indeholde bogstaver og tal og skal starte med et bogstav", "error");
+        if (!(await seedSymbols())) return;
+        const row = {
+          kommando,
+          tegn: f.tegn.value,
+          latex: f.latex.value.trim() || null,
+          kategori: f.kategori.value.trim() || "Andet",
+          beskrivelse: f.beskrivelse.value.trim() || null,
+        };
+        const existing = state.symbols.find((x) => x.kommando === kommando);
+        const { error } = existing
+          ? await db.from("symboler").update(row).eq("id", existing.id)
+          : await db.from("symboler").insert(row);
+        if (error) return toast("Kunne ikke gemme: " + error.message, "error");
+        await loadSymbols();
+        toast(existing ? `\\${kommando} er opdateret` : `\\${kommando} er tilføjet`, "ok");
+        Object.values(f).forEach((i) => i !== f.kategori && (i.value = ""));
+        draw();
+      },
+    },
+    h("h2", {}, "Tilføj eller ret et symbol"),
+    h("p", { class: "muted small" }, "Findes kommandoen allerede, bliver den opdateret. Tegn er det, der indsættes i WordMat og tekst. LaTeX bruges inde i $…$-formler."),
+    h(
+      "div",
+      { class: "sym-form-grid" },
+      h("label", { class: "field" }, h("span", {}, "Kommando (uden \\)"), f.kommando),
+      h("label", { class: "field" }, h("span", {}, "Tegn / tekst"), f.tegn),
+      h("label", { class: "field" }, h("span", {}, "LaTeX"), f.latex),
+      h("label", { class: "field" }, h("span", {}, "Kategori"), f.kategori),
+      h("label", { class: "field wide" }, h("span", {}, "Beskrivelse"), f.beskrivelse),
+    ),
+    h("datalist", { id: "symKat" }, KATEGORIER.map((k) => h("option", { value: k }))),
+    h(
+      "div",
+      { class: "row" },
+      h("button", { class: "btn primary", type: "submit" }, icon("plus"), "Gem symbol"),
+      h(
+        "button",
+        {
+          class: "btn ghost",
+          type: "button",
+          onclick: async () => {
+            if (!confirm("Slet alle dine ændringer og gendan standardlisten?")) return;
+            await db.from("symboler").delete().eq("user_id", state.user.id);
+            await loadSymbols();
+            toast("Standardlisten er gendannet", "ok");
+            draw();
+          },
+        },
+        "Gendan standardlisten",
+      ),
+    ),
+  );
+
+  v.append(
+    h(
+      "header",
+      { class: "page-head" },
+      h("div", { class: "crumbs" }, h("a", { href: "#/" }, "Forside"), " / Symboler"),
+      h("div", { class: "title-row" }, h("span", { class: "big-icon" }, "Ω"), h("h1", {}, "Symboler og \\-kommandoer")),
+      h(
+        "p",
+        { class: "muted" },
+        "Skriv \\ og navnet i editoren, f.eks. \\alpha eller \\int. En liste dukker op mens du skriver. Mellemrum gør \\alpha til α (som i Word), og Enter eller Tab vælger fra listen. Inde i $…$ indsættes LaTeX i stedet.",
+      ),
+    ),
+    state.symbolsError ? h("div", { class: "notice" }, "Din egen liste kan ikke gemmes endnu: kør supabase/schema-v3.sql i Supabase. Indtil da bruges standardlisten.") : "",
+    !state.user ? h("div", { class: "notice" }, "Log ind for at tilføje og fjerne symboler.") : "",
+    canEdit ? addForm : "",
+    h("div", { class: "toolbar-row" }, search, catSel),
+    listBox,
+  );
+  draw();
 }
 
 // ─── Eksport ────────────────────────────────────────────────────────────
@@ -1886,7 +2101,7 @@ db.auth.onAuthStateChange((event, session) => {
   setTimeout(async () => {
     booted = true;
     renderTopbar();
-    await loadItems();
+    await Promise.all([loadItems(), loadSymbols()]);
     if (event === "SIGNED_IN") toast("Velkommen tilbage 👋", "ok");
     route();
   }, 0);
