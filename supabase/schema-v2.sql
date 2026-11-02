@@ -11,6 +11,7 @@ begin
 end;
 $$;
 
+
 -- ─── Elementer: alt i biblioteket er et element ─────────────────────────
 create table if not exists public.elementer (
   id          uuid primary key default gen_random_uuid(),

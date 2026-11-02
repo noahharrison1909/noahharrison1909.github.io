@@ -1633,7 +1633,7 @@ $$
 $$
 
 ## Beregninger med enheder
-Variabler deles mellem alle beregninger på siden. Undgå variabelnavne, der også er enheder (f.eks. `h`, `m`, `s`), hvis du bruger enhederne.
+Variabler deles mellem alle beregninger på siden. Undgå variabelnavne, der også er enheder (f.eks. \`h\`, \`m\`, \`s\`), hvis du bruger enhederne.
 
 \`\`\`calc
 g = 9.82 m/s^2
