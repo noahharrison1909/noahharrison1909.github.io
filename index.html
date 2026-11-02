@@ -12,6 +12,9 @@
       --card: #ffffff;
       --border: #e4e4df;
       --accent: #2f6fdb;
+      --accent-text: #ffffff;
+      --danger: #c0392b;
+      --tag: #eef2fb;
     }
     @media (prefers-color-scheme: dark) {
       :root {
@@ -21,6 +24,9 @@
         --card: #1f1f1d;
         --border: #33332f;
         --accent: #7aa7f5;
+        --accent-text: #10151f;
+        --danger: #e57366;
+        --tag: #263248;
       }
     }
     * { box-sizing: border-box; }
@@ -31,44 +37,297 @@
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       line-height: 1.6;
     }
-    main {
-      max-width: 680px;
-      margin: 0 auto;
-      padding: 64px 16px;
+    main { max-width: 760px; margin: 0 auto; padding: 48px 16px 64px; }
+    header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+    h1 { font-size: 2.2rem; margin: 0 0 4px; }
+    .lead { color: var(--muted); margin: 0 0 32px; font-size: 1.1rem; }
+    .muted { color: var(--muted); font-size: 0.9rem; }
+    button {
+      font: inherit; cursor: pointer; border-radius: 8px; padding: 8px 14px;
+      border: 1px solid var(--border); background: var(--card); color: var(--text);
     }
-    h1 { font-size: 2.2rem; margin: 0 0 8px; }
-    .lead { color: var(--muted); margin: 0 0 40px; font-size: 1.1rem; }
-    h2 { font-size: 1.2rem; margin: 40px 0 12px; }
+    button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+    button.danger { color: var(--danger); }
+    button.small { padding: 4px 10px; font-size: 0.85rem; }
+    input, textarea, select {
+      font: inherit; width: 100%; padding: 8px 10px; border-radius: 8px;
+      border: 1px solid var(--border); background: var(--bg); color: var(--text);
+    }
+    textarea { min-height: 160px; resize: vertical; }
+    label { display: block; font-size: 0.9rem; margin: 12px 0 4px; }
+    label.check { display: flex; align-items: center; gap: 8px; }
+    label.check input { width: auto; }
+    .panel {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 12px; padding: 20px 24px; margin-bottom: 24px;
+    }
+    .panel h2 { margin: 0 0 4px; font-size: 1.15rem; }
+    .row { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+    .toolbar { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+    .toolbar input { flex: 2 1 220px; }
+    .toolbar select { flex: 1 1 140px; width: auto; }
     .card {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 20px 24px;
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 12px; padding: 20px 24px; margin-bottom: 16px;
     }
-    .card h3 { margin: 0 0 4px; font-size: 1.05rem; }
-    .card p { margin: 6px 0; }
-    .meta { color: var(--muted); font-size: 0.9rem; }
-    .result { font-size: 1.3rem; font-weight: 600; color: var(--accent); }
-    footer { margin-top: 64px; color: var(--muted); font-size: 0.85rem; }
+    .card h3 { margin: 0 0 4px; font-size: 1.1rem; }
+    .card .body { white-space: pre-wrap; margin: 12px 0 0; overflow-wrap: anywhere; }
+    .tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
+    .tag { background: var(--tag); border-radius: 999px; padding: 2px 10px; font-size: 0.8rem; }
+    .badge { font-size: 0.75rem; border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; margin-left: 6px; color: var(--muted); }
+    .error { color: var(--danger); font-size: 0.9rem; margin-top: 8px; }
+    .hidden { display: none !important; }
+    footer { margin-top: 48px; color: var(--muted); font-size: 0.85rem; }
   </style>
 </head>
 <body>
   <main>
-    <h1>Harrison Library</h1>
-    <p class="lead">Mine projekter, beregninger og ting jeg undersøger.</p>
+    <header>
+      <div>
+        <h1>Harrison Library</h1>
+        <p class="lead">Mine projekter, beregninger og ting jeg undersøger.</p>
+      </div>
+      <div>
+        <span id="who" class="muted"></span>
+        <button id="loginBtn">Log ind</button>
+        <button id="newBtn" class="primary hidden">+ Ny post</button>
+        <button id="logoutBtn" class="hidden">Log ud</button>
+      </div>
+    </header>
 
-    <h2>Undersøgelser</h2>
-    <article class="card">
-      <h3>Faldhastighed fra Storebæltsbroen</h3>
-      <p class="meta">Fysik · 2. november 2026</p>
-      <p>Hvor hurtigt rammer man vandet fra Østbroen? Med en højde på ca. 65 m
-        (sejlhøjden) og uden luftmodstand:</p>
-      <p>v = √(2 · g · h) = √(2 · 9,82 · 65)</p>
-      <p class="result">≈ 35,7 m/s ≈ 129 km/t</p>
-      <p class="meta">Med luftmodstand bliver hastigheden lidt lavere.</p>
-    </article>
+    <section id="loginPanel" class="panel hidden">
+      <h2>Log ind</h2>
+      <form id="loginForm">
+        <label for="email">E-mail</label>
+        <input id="email" type="email" autocomplete="username" required>
+        <label for="password">Adgangskode</label>
+        <input id="password" type="password" autocomplete="current-password" required>
+        <div id="loginError" class="error"></div>
+        <div class="row">
+          <button class="primary" type="submit">Log ind</button>
+          <button type="button" id="loginCancel">Annuller</button>
+        </div>
+      </form>
+    </section>
 
-    <footer>Lavet med GitHub Pages</footer>
+    <section id="editPanel" class="panel hidden">
+      <h2 id="editTitle">Ny post</h2>
+      <form id="editForm">
+        <label for="fTitel">Titel</label>
+        <input id="fTitel" required>
+        <label for="fEmne">Emne</label>
+        <input id="fEmne" placeholder="f.eks. Fysik" list="emneListe">
+        <datalist id="emneListe"></datalist>
+        <label for="fTags">Tags (adskilt med komma)</label>
+        <input id="fTags" placeholder="fald, broer, storebælt">
+        <label for="fIndhold">Indhold</label>
+        <textarea id="fIndhold"></textarea>
+        <label class="check"><input id="fOffentlig" type="checkbox"> Offentlig (alle kan se den)</label>
+        <div id="editError" class="error"></div>
+        <div class="row">
+          <button class="primary" type="submit">Gem</button>
+          <button type="button" id="editCancel">Annuller</button>
+        </div>
+      </form>
+    </section>
+
+    <div class="toolbar">
+      <input id="search" type="search" placeholder="Søg i titel, indhold og tags…">
+      <select id="emneFilter"><option value="">Alle emner</option></select>
+    </div>
+
+    <div id="status" class="muted">Henter poster…</div>
+    <div id="list"></div>
+
+    <footer>Lavet med GitHub Pages og Supabase</footer>
   </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js"></script>
+  <script>
+    const SUPABASE_URL = "https://icenjdbuofsvpxxiryne.supabase.co";
+    const SUPABASE_KEY = "sb_publishable_sM0PH5Kd5WDsgtg0mbt78g_moQYu27M";
+    const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    const $ = (id) => document.getElementById(id);
+    let user = null;
+    let poster = [];
+    let redigerId = null;
+
+    function vis(el, synlig) { el.classList.toggle("hidden", !synlig); }
+
+    function opdaterLoginUI() {
+      vis($("loginBtn"), !user);
+      vis($("newBtn"), !!user);
+      vis($("logoutBtn"), !!user);
+      $("who").textContent = user ? user.email + " " : "";
+    }
+
+    async function hentPoster() {
+      const { data, error } = await db.from("poster").select("*").order("oprettet", { ascending: false });
+      if (error) {
+        $("status").textContent = "Kunne ikke hente poster: " + error.message;
+        return;
+      }
+      poster = data;
+      opdaterEmner();
+      tegn();
+    }
+
+    function opdaterEmner() {
+      const emner = [...new Set(poster.map((p) => p.emne).filter(Boolean))].sort();
+      const valgt = $("emneFilter").value;
+      $("emneFilter").innerHTML = '<option value="">Alle emner</option>';
+      $("emneListe").innerHTML = "";
+      for (const e of emner) {
+        $("emneFilter").add(new Option(e, e, false, e === valgt));
+        $("emneListe").append(new Option(e));
+      }
+    }
+
+    function tegn() {
+      const q = $("search").value.trim().toLowerCase();
+      const emne = $("emneFilter").value;
+      const fundne = poster.filter((p) => {
+        if (emne && p.emne !== emne) return false;
+        if (!q) return true;
+        return [p.titel, p.indhold, p.emne, ...(p.tags || [])].join(" ").toLowerCase().includes(q);
+      });
+
+      $("status").textContent = poster.length === 0
+        ? "Der er ingen poster endnu."
+        : fundne.length === 0 ? "Ingen poster matcher din søgning." : "";
+
+      const list = $("list");
+      list.innerHTML = "";
+      for (const p of fundne) {
+        const card = document.createElement("article");
+        card.className = "card";
+
+        const h = document.createElement("h3");
+        h.textContent = p.titel;
+        if (!p.offentlig) {
+          const b = document.createElement("span");
+          b.className = "badge";
+          b.textContent = "Privat";
+          h.append(b);
+        }
+        card.append(h);
+
+        const meta = document.createElement("div");
+        meta.className = "muted";
+        const dato = new Date(p.oprettet).toLocaleDateString("da-DK", { day: "numeric", month: "long", year: "numeric" });
+        meta.textContent = (p.emne ? p.emne + " · " : "") + dato;
+        card.append(meta);
+
+        if (p.indhold) {
+          const body = document.createElement("p");
+          body.className = "body";
+          body.textContent = p.indhold;
+          card.append(body);
+        }
+
+        if (p.tags && p.tags.length) {
+          const tags = document.createElement("div");
+          tags.className = "tags";
+          for (const t of p.tags) {
+            const s = document.createElement("span");
+            s.className = "tag";
+            s.textContent = t;
+            tags.append(s);
+          }
+          card.append(tags);
+        }
+
+        if (user && user.id === p.user_id) {
+          const row = document.createElement("div");
+          row.className = "row";
+          const ret = document.createElement("button");
+          ret.className = "small";
+          ret.textContent = "Ret";
+          ret.onclick = () => aabnEditor(p);
+          const slet = document.createElement("button");
+          slet.className = "small danger";
+          slet.textContent = "Slet";
+          slet.onclick = () => sletPost(p);
+          row.append(ret, slet);
+          card.append(row);
+        }
+
+        list.append(card);
+      }
+    }
+
+    function aabnEditor(p) {
+      redigerId = p ? p.id : null;
+      $("editTitle").textContent = p ? "Ret post" : "Ny post";
+      $("fTitel").value = p ? p.titel : "";
+      $("fEmne").value = p ? p.emne || "" : "";
+      $("fTags").value = p ? (p.tags || []).join(", ") : "";
+      $("fIndhold").value = p ? p.indhold || "" : "";
+      $("fOffentlig").checked = p ? p.offentlig : false;
+      $("editError").textContent = "";
+      vis($("editPanel"), true);
+      $("editPanel").scrollIntoView({ behavior: "smooth" });
+      $("fTitel").focus();
+    }
+
+    async function sletPost(p) {
+      if (!confirm('Slet "' + p.titel + '"? Det kan ikke fortrydes.')) return;
+      const { error } = await db.from("poster").delete().eq("id", p.id);
+      if (error) return alert("Kunne ikke slette: " + error.message);
+      hentPoster();
+    }
+
+    $("loginBtn").onclick = () => { vis($("loginPanel"), true); $("email").focus(); };
+    $("loginCancel").onclick = () => vis($("loginPanel"), false);
+    $("newBtn").onclick = () => aabnEditor(null);
+    $("editCancel").onclick = () => vis($("editPanel"), false);
+    $("logoutBtn").onclick = () => db.auth.signOut();
+    $("search").oninput = tegn;
+    $("emneFilter").onchange = tegn;
+
+    $("loginForm").onsubmit = async (e) => {
+      e.preventDefault();
+      $("loginError").textContent = "";
+      const { error } = await db.auth.signInWithPassword({
+        email: $("email").value,
+        password: $("password").value,
+      });
+      if (error) {
+        $("loginError").textContent = "Login mislykkedes: " + error.message;
+        return;
+      }
+      $("password").value = "";
+      vis($("loginPanel"), false);
+    };
+
+    $("editForm").onsubmit = async (e) => {
+      e.preventDefault();
+      $("editError").textContent = "";
+      const rad = {
+        titel: $("fTitel").value.trim(),
+        emne: $("fEmne").value.trim() || null,
+        tags: $("fTags").value.split(",").map((t) => t.trim()).filter(Boolean),
+        indhold: $("fIndhold").value,
+        offentlig: $("fOffentlig").checked,
+      };
+      const { error } = redigerId
+        ? await db.from("poster").update(rad).eq("id", redigerId)
+        : await db.from("poster").insert(rad);
+      if (error) {
+        $("editError").textContent = "Kunne ikke gemme: " + error.message;
+        return;
+      }
+      vis($("editPanel"), false);
+      hentPoster();
+    };
+
+    db.auth.onAuthStateChange((_event, session) => {
+      user = session ? session.user : null;
+      opdaterLoginUI();
+      if (!user) vis($("editPanel"), false);
+      hentPoster();
+    });
+  </script>
 </body>
 </html>
